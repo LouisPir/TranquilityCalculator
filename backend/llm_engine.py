@@ -1,4 +1,6 @@
+import json
 import os
+import re
 from typing import List, Optional
 import pandas as pd
 from dotenv import load_dotenv
@@ -10,7 +12,7 @@ load_dotenv()
 # Hard guardrails to protect Ollama Cloud budget
 THEMES_PER_BATCH = 2
 MAX_BATCH_CALLS = 10
-MAX_OUTPUT_TOKENS_PER_CALL = 2500
+MAX_OUTPUT_TOKENS_PER_CALL = 3500
 
 
 def get_ollama_client() -> Client:
@@ -21,6 +23,33 @@ def get_ollama_client() -> Client:
         host="https://ollama.com",
         headers={"Authorization": f"Bearer {api_key}"},
     )
+
+
+def _extract_and_validate_batch(raw_content: str) -> BatchAuditResponse:
+    """Strips markdown fences and normalizes list vs dict JSON outputs before Pydantic validation."""
+    cleaned = raw_content.strip()
+
+    # Remove ```json ... ``` or ``` ... ``` wrappers if present
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+
+    # Fallback: slice from first '{' or '[' to last '}' or ']'
+    start_obj = cleaned.find("{")
+    start_arr = cleaned.find("[")
+    starts = [i for i in (start_obj, start_arr) if i != -1]
+    if starts:
+        start = min(starts)
+        end = max(cleaned.rfind("}"), cleaned.rfind("]"))
+        if end > start:
+            cleaned = cleaned[start : end + 1]
+
+    parsed = json.loads(cleaned)
+
+    # If model returned a raw list of evaluations, wrap it into the expected dict
+    if isinstance(parsed, list):
+        parsed = {"evaluations": parsed}
+
+    return BatchAuditResponse.model_validate(parsed)
 
 
 def format_batch_for_prompt(df_batch: pd.DataFrame) -> str:
@@ -73,10 +102,12 @@ def evaluer_propal_vision(
 Évalue la PROPAL (texte et/ou images de plans) UNIQUEMENT sur les critères ci-dessous selon leur grille de seuils de 0 à 5.
 
 RÈGLES STRICTES :
-1. Si aucune information n'est visible dans le texte OU les plans pour un critère, LAISSE `note` = null, `type_preuve` = null et `preuve_extrait` = null. N'invente JAMAIS rien.
+1. Si aucune information n'est visible dans le texte OU les plans pour un critère, LAISSE `note` = null, `type_preuve` = null, `preuve_extrait` = null et `quick_win` = null. N'invente JAMAIS rien.
 2. Si une information est présente, attribue une note entière de 0 à 5 en comparant les valeurs/dispositifs du dossier aux colonnes `niveau_0` à `niveau_5`.
 3. Renseigne `type_preuve` parmi : 'PV / mesure', 'Visible sur plan', 'Notice / CCTP', 'Declaratif'.
 4. Sois concis sur `preuve_extrait` (1 phrase max) et propose un `quick_win` concret uniquement si `note` <= 2.
+5. Réponds UNIQUEMENT en JSON brut valide (sans balises ```json) au format exact :
+{{"evaluations": [{{"id_critere": "1,1", "note": 3, "type_preuve": "Notice / CCTP", "preuve_extrait": "...", "quick_win": null}}]}}
 
 GRILLE D'ÉVALUATION (0 à 5) :
 {referentiel_md}
@@ -102,7 +133,7 @@ GRILLE D'ÉVALUATION (0 à 5) :
             },
         )
 
-        batch_res = BatchAuditResponse.model_validate_json(response.message.content)
+        batch_res = _extract_and_validate_batch(response.message.content)
         all_evaluations.extend(batch_res.evaluations)
 
     return all_evaluations
