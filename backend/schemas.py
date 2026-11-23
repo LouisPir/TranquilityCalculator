@@ -1,14 +1,14 @@
-from pydantic import BaseModel, Field
 from typing import List, Optional
+from pydantic import BaseModel, Field
 
 
 class CritereEvalue(BaseModel):
-    id_critere: str = Field(..., description="Exact criterion ID from the CSV (e.g. T06.01)")
+    id_critere: str = Field(..., description="Exact criterion ID from the CSV (e.g. '1,1', '4,3')")
     note: Optional[int] = Field(
         None,
         ge=0,
-        le=4,
-        description="Maturity score 0-4. MUST be null if no information is found in text or plans.",
+        le=5,
+        description="Maturity score from 0 to 5. MUST be null if no evidence is found in text or plans.",
     )
     type_preuve: Optional[str] = Field(
         None,
@@ -16,11 +16,11 @@ class CritereEvalue(BaseModel):
     )
     preuve_extrait: Optional[str] = Field(
         None,
-        description="Exact quote from text or visual observation from plan. MUST be null if not found.",
+        description="Exact short quote from text or visual observation from plan. MUST be null if absent.",
     )
     quick_win: Optional[str] = Field(
         None,
-        description="Concrete recommendation if note is 0, 1, or 2. Null otherwise.",
+        description="Actionable recommendation to reach level 3+ if note is 0, 1, or 2. Null otherwise.",
     )
 
 
