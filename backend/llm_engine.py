@@ -7,8 +7,9 @@ from backend.schemas import BatchAuditResponse, CritereEvalue
 
 load_dotenv()
 
-# Hard guardrails to protect API budget ($4.81)
-MAX_VECTORS_PER_RUN = 14
+# Hard guardrails to protect Ollama Cloud budget
+THEMES_PER_BATCH = 2
+MAX_BATCH_CALLS = 10
 MAX_OUTPUT_TOKENS_PER_CALL = 2500
 
 
@@ -23,55 +24,67 @@ def get_ollama_client() -> Client:
 
 
 def format_batch_for_prompt(df_batch: pd.DataFrame) -> str:
-    """Formats a compact table of criteria for a single vector to minimize input tokens."""
-    cols = ["id_critere", "critere", "question_audit", "a_regarder_plans"]
-    return df_batch[cols].to_markdown(index=False)
+    """Formats a compact Markdown table with the 0-5 threshold rubric for the LLM."""
+    cols = [
+        "id_critere",
+        "theme",
+        "critere",
+        "indicateur_mesure",
+        "niveau_0",
+        "niveau_1",
+        "niveau_2",
+        "niveau_3",
+        "niveau_4",
+        "niveau_5",
+        "preuve_attendue",
+    ]
+    available_cols = [c for c in cols if c in df_batch.columns]
+    return df_batch[available_cols].to_markdown(index=False)
 
 
 def evaluer_propal_vision(
-    df_applicable: pd.DataFrame,
+    df_criteria: pd.DataFrame,
     texte_propal: str,
     plan_images_b64: Optional[List[str]] = None,
     model: str = "gemma4",
-    vecteurs_cibles: Optional[List[str]] = None,
+    themes_cibles: Optional[List[str]] = None,
 ) -> List[CritereEvalue]:
     """
-    Audits the PROPAL text + plan images batch-by-batch (one API call per vector).
-    Leaves 'note' as None whenever no evidence is visible.
+    Audits PROPAL text and plan images on a 0-5 scale, batching themes to cap API calls.
+    Leaves 'note' as None whenever no information is present in text or plans.
     """
     client = get_ollama_client()
     all_evaluations: List[CritereEvalue] = []
 
-    vecteurs = vecteurs_cibles or sorted(df_applicable["vecteur"].unique().tolist())
-    vecteurs = vecteurs[:MAX_VECTORS_PER_RUN]
+    themes = themes_cibles or df_criteria["theme"].unique().tolist()
+    theme_batches = [
+        themes[i : i + THEMES_PER_BATCH]
+        for i in range(0, len(themes), THEMES_PER_BATCH)
+    ][:MAX_BATCH_CALLS]
 
-    for vec in vecteurs:
-        df_vec = df_applicable[df_applicable["vecteur"] == vec]
-        if df_vec.empty:
+    for batch_themes in theme_batches:
+        df_batch = df_criteria[df_criteria["theme"].isin(batch_themes)]
+        if df_batch.empty:
             continue
 
-        referentiel_md = format_batch_for_prompt(df_vec)
+        referentiel_md = format_batch_for_prompt(df_batch)
 
-        system_prompt = f"""Tu es un auditeur technique en aménagement urbain et tranquillité publique.
-Analyse le texte de la PROPAL et les images de plans fournies pour évaluer UNIQUEMENT les critères du vecteur {vec} ci-dessous.
+        system_prompt = f"""Tu es un auditeur expert en aménagement urbain et tranquillité publique.
+Évalue la PROPAL (texte et/ou images de plans) UNIQUEMENT sur les critères ci-dessous selon leur grille de seuils de 0 à 5.
 
 RÈGLES STRICTES :
 1. Si aucune information n'est visible dans le texte OU les plans pour un critère, LAISSE `note` = null, `type_preuve` = null et `preuve_extrait` = null. N'invente JAMAIS rien.
-2. Si une information existe, note de 0 à 4 :
-   - 0 : Explicitement absent / non traité
-   - 1 : Intention vague / déclaratif sans localisation
-   - 2 : Prévu mais incomplet
-   - 3 : Conçu, localisé sur plan ou détaillé au CCTP
-   - 4 : Exemplaire avec vérification/mesure et gestion prévue
-3. Sois concis sur `preuve_extrait` (1 phrase max) et `quick_win` (uniquement si note <= 2).
+2. Si une information est présente, attribue une note entière de 0 à 5 en comparant les valeurs/dispositifs du dossier aux colonnes `niveau_0` à `niveau_5`.
+3. Renseigne `type_preuve` parmi : 'PV / mesure', 'Visible sur plan', 'Notice / CCTP', 'Declaratif'.
+4. Sois concis sur `preuve_extrait` (1 phrase max) et propose un `quick_win` concret uniquement si `note` <= 2.
 
-CRITÈRES À ÉVALUER ({vec}) :
+GRILLE D'ÉVALUATION (0 à 5) :
 {referentiel_md}
 """
 
         user_msg = {
             "role": "user",
-            "content": f"Voici le texte de la PROPAL :\n\n{texte_propal}",
+            "content": f"Voici le texte de la PROPAL à auditer :\n\n{texte_propal}",
         }
         if plan_images_b64:
             user_msg["images"] = plan_images_b64
