@@ -1,18 +1,12 @@
 import base64
 import io
 import re
-import unicodedata
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Tuple
+import openpyxl
 import pandas as pd
 from PIL import Image
 from pypdf import PdfReader
-
-
-def _normalize_col(col: str) -> str:
-    """Lowercases and strips accents/symbols for resilient column matching."""
-    s = unicodedata.normalize("NFKD", str(col)).encode("ascii", "ignore").decode("ascii")
-    return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
 
 
 def extract_and_clean_pdf(file_path_or_buffer, max_chars: int = 35000) -> str:
@@ -46,44 +40,77 @@ def prepare_plan_images(
     return encoded_images
 
 
-def load_criteria(csv_path: str | Path) -> pd.DataFrame:
-    """Loads the 0-5 criteria CSV (semicolon or comma delimited, UTF-8 or Windows-1252)."""
-    try:
-        df = pd.read_csv(csv_path, encoding="utf-8-sig", sep=None, engine="python", dtype=str)
-    except UnicodeDecodeError:
-        df = pd.read_csv(csv_path, encoding="cp1252", sep=None, engine="python", dtype=str)
+def load_workbook_referentiel(xlsx_path: str | Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Reads the 242 criteria from 'Grille' and vector metadata from 'Vecteurs'
+    directly from the Excel workbook (zero encoding issues).
+    """
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
 
-    df.columns = [_normalize_col(c) for c in df.columns]
+    # 1. Load 'Vecteurs' metadata (Axis mapping, labels, objectives)
+    ws_vec = wb["Vecteurs"]
+    vec_rows = list(ws_vec.iter_rows(min_row=4, values_only=True))
+    vec_headers = [str(h).strip() if h else f"col_{i}" for i, h in enumerate(vec_rows[0])]
+    df_vecteurs = pd.DataFrame(vec_rows[1:], columns=vec_headers)
+    df_vecteurs = df_vecteurs[
+        df_vecteurs["Code"].astype(str).str.match(r"^V\d{2}$")
+    ].copy()
+    df_vecteurs["axe_code"] = df_vecteurs["Axe"].astype(str).str.replace("Axe ", "", regex=False).str.strip()
+    df_vecteurs["poids_vecteur"] = 1.0
 
-    rename_map = {
-        "id": "id_critere",
-        "0_non_traite": "niveau_0",
-        "1_tres_insuffisant": "niveau_1",
-        "2_minimum_courant": "niveau_2",
-        "3_bonne_pratique": "niveau_3",
-        "4_renforce": "niveau_4",
-        "5_exemplaire": "niveau_5",
-        "nature_du_seuil": "nature_seuil",
-        "poids_1_3": "poids",
-    }
-    df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+    # 2. Load 'Grille' (242 unique criteria)
+    ws_g = wb["Grille"]
+    g_rows = list(ws_g.iter_rows(min_row=4, values_only=True))
+    g_headers = [str(h).replace("\n", " ").strip() if h else f"col_{i}" for i, h in enumerate(g_rows[0])]
+    df_raw = pd.DataFrame(g_rows[1:], columns=g_headers)
 
-    # Drop empty rows and enforce clean types
-    df = df[df["id_critere"].notna() & (df["id_critere"].str.strip() != "")].copy()
-    df["id_critere"] = df["id_critere"].str.strip()
-    df["theme"] = df["theme"].fillna("Autre").str.strip()
-    df["echelle"] = df["echelle"].fillna("Ville").str.strip()
-    df["nature_seuil"] = df["nature_seuil"].fillna("Recommandation").str.strip()
-    df["poids"] = pd.to_numeric(df["poids"].str.replace(",", "."), errors="coerce").fillna(1.0)
+    # Filter out family header rows; keep only the 242 criteria rows (V01..V14)
+    df_crit = df_raw[df_raw["Vecteur"].astype(str).str.match(r"^V\d{2}$")].copy()
 
-    return df
+    df_clean = pd.DataFrame({
+        "id_critere": df_crit["ID"].astype(str).str.strip(),
+        "vecteur": df_crit["Vecteur"].astype(str).str.strip(),
+        "famille": df_crit["Famille de bonnes pratiques"].fillna("").astype(str).str.strip(),
+        "critere": df_crit["Critère"].fillna("").astype(str).str.strip(),
+        "question_audit": df_crit["Question d'audit"].fillna("").astype(str).str.strip(),
+        "ou_regarder_plans": df_crit["Où regarder dans les plans"].fillna("").astype(str).str.strip(),
+        "preuves_attendues": df_crit["Preuves attendues"].fillna("").astype(str).str.strip(),
+        "condition": df_crit["Condition"].fillna("Toujours").astype(str).str.strip(),
+        "poids": pd.to_numeric(df_crit["Poids"], errors="coerce").fillna(1.0),
+        "cible": 3.0,  # Default target from Paramètres!B4
+        "quick_win_referentiel": df_crit["Quick win associé"].where(df_crit["Quick win associé"].notna(), None),
+        "phase": df_crit["Phase"].fillna("").astype(str).str.strip(),
+        "classe_cout": df_crit["Coût"].where(df_crit["Coût"].notna(), None),
+        "facilite": df_crit["Facilité"].where(df_crit["Facilité"].notna(), None),
+        "pourquoi": df_crit["Pourquoi ce critere ?"].fillna("").astype(str).str.strip(),
+    })
+
+    # Attach Axis code and Vector label for downstream aggregation
+    vec_lookup = df_vecteurs.set_index("Code")[["axe_code", "Vecteur"]].to_dict(orient="index")
+    df_clean["axe"] = df_clean["vecteur"].map(lambda v: vec_lookup.get(v, {}).get("axe_code", ""))
+    df_clean["vecteur_nom"] = df_clean["vecteur"].map(lambda v: vec_lookup.get(v, {}).get("Vecteur", v))
+
+    return df_clean.reset_index(drop=True), df_vecteurs.reset_index(drop=True)
 
 
-def filter_criteria_by_scale(
-    df: pd.DataFrame, active_scales: Optional[Set[str]] = None
+def filter_applicable_criteria(
+    df_criteria: pd.DataFrame, project_answers: Optional[Dict[str, Optional[bool]]] = None
 ) -> pd.DataFrame:
-    """Filters criteria by spatial scale ('Ville', 'Interface', 'Bâtiment')."""
-    if not active_scales:
-        return df.copy()
-    normalized_scales = {s.strip().lower() for s in active_scales}
-    return df[df["echelle"].str.lower().isin(normalized_scales)].copy()
+    """
+    Applies the exact workbook applicability formula from Grille!Q7:
+    - 'Toujours' -> always active.
+    - Unanswered (None) -> stays active by precaution.
+    - Combined conditions ('ESP/EXT', 'LOG/RDC') -> excluded ONLY if BOTH are explicitly False.
+    - Single condition ('PRK', 'LOG', 'RDC', 'ESP', 'EQP', 'REH') -> excluded ONLY if explicitly False.
+    """
+    if not project_answers:
+        return df_criteria.copy()
+
+    def is_active(cond: str) -> bool:
+        if cond == "Toujours":
+            return True
+        parts = [p.strip() for p in cond.split("/")]
+        # Active unless every tag in the condition is explicitly False
+        return any(project_answers.get(p, True) is not False for p in parts)
+
+    return df_criteria[df_criteria["condition"].apply(is_active)].copy().reset_index(drop=True)

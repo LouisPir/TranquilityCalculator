@@ -9,10 +9,10 @@ from backend.schemas import BatchAuditResponse, CritereEvalue
 
 load_dotenv()
 
-# Hard guardrails to protect Ollama Cloud budget
-THEMES_PER_BATCH = 2
-MAX_BATCH_CALLS = 10
-MAX_OUTPUT_TOKENS_PER_CALL = 3500
+# Hard budget & stability guardrails for Ollama Cloud
+MAX_CRITERIA_PER_CALL = 20
+MAX_TOTAL_CALLS = 15
+MAX_OUTPUT_TOKENS_PER_CALL = 3000
 
 
 def get_ollama_client() -> Client:
@@ -28,12 +28,9 @@ def get_ollama_client() -> Client:
 def _extract_and_validate_batch(raw_content: str) -> BatchAuditResponse:
     """Strips markdown fences and normalizes list vs dict JSON outputs before Pydantic validation."""
     cleaned = raw_content.strip()
-
-    # Remove ```json ... ``` or ``` ... ``` wrappers if present
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s*```$", "", cleaned).strip()
 
-    # Fallback: slice from first '{' or '[' to last '}' or ']'
     start_obj = cleaned.find("{")
     start_arr = cleaned.find("[")
     starts = [i for i in (start_obj, start_arr) if i != -1]
@@ -44,8 +41,6 @@ def _extract_and_validate_batch(raw_content: str) -> BatchAuditResponse:
             cleaned = cleaned[start : end + 1]
 
     parsed = json.loads(cleaned)
-
-    # If model returned a raw list of evaluations, wrap it into the expected dict
     if isinstance(parsed, list):
         parsed = {"evaluations": parsed}
 
@@ -53,63 +48,64 @@ def _extract_and_validate_batch(raw_content: str) -> BatchAuditResponse:
 
 
 def format_batch_for_prompt(df_batch: pd.DataFrame) -> str:
-    """Formats a compact Markdown table with the 0-5 threshold rubric for the LLM."""
-    cols = [
-        "id_critere",
-        "theme",
-        "critere",
-        "indicateur_mesure",
-        "niveau_0",
-        "niveau_1",
-        "niveau_2",
-        "niveau_3",
-        "niveau_4",
-        "niveau_5",
-        "preuve_attendue",
-    ]
-    available_cols = [c for c in cols if c in df_batch.columns]
-    return df_batch[available_cols].to_markdown(index=False)
+    """Builds a compact Markdown table without repeating the constant 0-4 rubric."""
+    cols = ["id_critere", "vecteur", "critere", "question_audit", "ou_regarder_plans", "preuves_attendues"]
+    return df_batch[cols].to_markdown(index=False)
 
 
 def evaluer_propal_vision(
-    df_criteria: pd.DataFrame,
+    df_applicable: pd.DataFrame,
     texte_propal: str,
     plan_images_b64: Optional[List[str]] = None,
     model: str = "gemma4",
-    themes_cibles: Optional[List[str]] = None,
+    vecteurs_cibles: Optional[List[str]] = None,
 ) -> List[CritereEvalue]:
     """
-    Audits PROPAL text and plan images on a 0-5 scale, batching themes to cap API calls.
-    Leaves 'note' as None whenever no information is present in text or plans.
+    Audits PROPAL text and plan images against the 242-criteria workbook (0-4 scale).
+    Chunks by criterion count (<= 20/call) and uses sparse JSON output to save tokens.
     """
     client = get_ollama_client()
     all_evaluations: List[CritereEvalue] = []
 
-    themes = themes_cibles or df_criteria["theme"].unique().tolist()
-    theme_batches = [
-        themes[i : i + THEMES_PER_BATCH]
-        for i in range(0, len(themes), THEMES_PER_BATCH)
-    ][:MAX_BATCH_CALLS]
+    df_target = (
+        df_applicable[df_applicable["vecteur"].isin(vecteurs_cibles)].copy()
+        if vecteurs_cibles
+        else df_applicable.copy()
+    )
+    if df_target.empty:
+        return []
 
-    for batch_themes in theme_batches:
-        df_batch = df_criteria[df_criteria["theme"].isin(batch_themes)]
-        if df_batch.empty:
-            continue
+    # Split into fixed-size chunks so large vectors (e.g. V14 with 64 criteria) never truncate
+    batches = [
+        df_target.iloc[i : i + MAX_CRITERIA_PER_CALL]
+        for i in range(0, len(df_target), MAX_CRITERIA_PER_CALL)
+    ][:MAX_TOTAL_CALLS]
 
+    for df_batch in batches:
         referentiel_md = format_batch_for_prompt(df_batch)
 
-        system_prompt = f"""Tu es un auditeur expert en aménagement urbain et tranquillité publique.
-Évalue la PROPAL (texte et/ou images de plans) UNIQUEMENT sur les critères ci-dessous selon leur grille de seuils de 0 à 5.
+        system_prompt = f"""Tu es un auditeur expert en aménagement urbain et tranquillité publique (référentiel Nexity / Engagement & Territoires).
+Analyse le texte de la PROPAL et les images de plans fournies UNIQUEMENT sur les critères ci-dessous.
 
-RÈGLES STRICTES :
-1. Si aucune information n'est visible dans le texte OU les plans pour un critère, LAISSE `note` = null, `type_preuve` = null, `preuve_extrait` = null et `quick_win` = null. N'invente JAMAIS rien.
-2. Si une information est présente, attribue une note entière de 0 à 5 en comparant les valeurs/dispositifs du dossier aux colonnes `niveau_0` à `niveau_5`.
-3. Renseigne `type_preuve` parmi : 'PV / mesure', 'Visible sur plan', 'Notice / CCTP', 'Declaratif'.
-4. Sois concis sur `preuve_extrait` (1 phrase max) et propose un `quick_win` concret uniquement si `note` <= 2.
-5. Réponds UNIQUEMENT en JSON brut valide (sans balises ```json) au format exact :
-{{"evaluations": [{{"id_critere": "1,1", "note": 3, "type_preuve": "Notice / CCTP", "preuve_extrait": "...", "quick_win": null}}]}}
+ÉCHELLE DE MATURITÉ (0 à 4) :
+- 0 (Inexistant) : Le sujet est explicitement absent ou non traité alors qu'il devrait l'être dans la pièce fournie.
+- 1 (Initié) : Intention évoquée, traitement ponctuel, non dimensionné ou non localisé.
+- 2 (Structuré) : Traité et localisé sur les plans ou documents, mais de façon partielle.
+- 3 (Consolidé) : Traité de façon complète et cohérente sur tout le périmètre ; pièces et responsabilités prévues.
+- 4 (Exemplaire) : Solution vérifiée par essai, mesure ou retour d'usage ; suivi et corrections prévus.
 
-GRILLE D'ÉVALUATION (0 à 5) :
+DOCTRINE DE LA PREUVE (`type_preuve`) :
+Choisis strictement parmi : 'PV / mesure', 'Visible sur plan', 'Notice / CCTP', 'Declaratif', 'Aucune'.
+
+RÈGLES STRICTES D'ÉCONOMIE ET DE RIGUEUR :
+1. NE RENVOIE QUE les critères pour lesquels tu vois réellement une information (positive ou négative) dans le texte OU sur les plans.
+2. Si un critère n'est PAS mentionné et n'est PAS visible sur les plans, OMETS-LE totalement de la liste JSON (il restera vide). N'invente JAMAIS rien.
+3. Si aucun critère du lot n'est présent dans le dossier, renvoie {{"evaluations": []}}.
+4. Cite une preuve courte (1 phrase max) dans `preuve_extrait`. Remplis `quick_win_ia` uniquement si `note` <= 2.
+5. Réponds UNIQUEMENT en JSON brut valide au format :
+{{"evaluations": [{{"id_critere": "T06.01", "note": 3, "type_preuve": "Visible sur plan", "preuve_extrait": "...", "quick_win_ia": null}}]}}
+
+CRITÈRES DU LOT :
 {referentiel_md}
 """
 

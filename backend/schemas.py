@@ -3,24 +3,24 @@ from pydantic import BaseModel, Field
 
 
 class CritereEvalue(BaseModel):
-    id_critere: str = Field(..., description="Exact criterion ID from the CSV (e.g. '1,1', '4,3')")
+    id_critere: str = Field(..., description="Exact criterion ID from the Excel sheet (e.g. 'T06.01')")
     note: Optional[int] = Field(
         None,
         ge=0,
-        le=5,
-        description="Maturity score from 0 to 5. MUST be null if no evidence is found in text or plans.",
+        le=4,
+        description="Maturity score from 0 to 4. MUST be null if no information is found.",
     )
     type_preuve: Optional[str] = Field(
         None,
-        description="One of: 'PV / mesure', 'Visible sur plan', 'Notice / CCTP', 'Declaratif', or null if absent.",
+        description="Exactly one of: 'PV / mesure', 'Visible sur plan', 'Notice / CCTP', 'Declaratif', 'Aucune', or null.",
     )
     preuve_extrait: Optional[str] = Field(
         None,
-        description="Exact short quote from text or visual observation from plan. MUST be null if absent.",
+        description="Short exact quote from text or visual observation from plan. Null if absent.",
     )
-    quick_win: Optional[str] = Field(
+    quick_win_ia: Optional[str] = Field(
         None,
-        description="Actionable recommendation to reach level 3+ if note is 0, 1, or 2. Null otherwise.",
+        description="Short actionable recommendation ONLY if note <= 2. Null otherwise.",
     )
 
 
