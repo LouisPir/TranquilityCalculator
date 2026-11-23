@@ -5,7 +5,8 @@ import { codeVecteur } from './referentiel';
 
 // Contrat attendu du backend (voir README) :
 //   POST /api/extraction      multipart : pdf?, plans[]?                 -> { texte, plans_b64 }
-//   POST /api/audit/vecteur   JSON { vecteur, texte, plans_b64, tags }   -> { vecteur, evaluations: CritereEvalue[] }
+//   POST /api/audit/vecteur   JSON { vecteur, texte, plans_b64, reponses } -> { vecteur, evaluations: CritereEvalue[] }
+//   reponses = { ESP: true|false|null, … } : les 9 questions de contexte (null = sans réponse, critères gardés)
 // Le score est calculé dans le front (lib/calcul.ts, port de calculator.py).
 
 export interface Extraction {
@@ -67,14 +68,14 @@ export async function evaluerVecteur(args: {
   vecteur: string;
   texte: string;
   plansB64: string[];
-  tags: string[];
+  reponses: Record<string, boolean | null>;
   applicables: string[]; // ids applicables, utilisés seulement par le mode démo
 }): Promise<{ evaluations: CritereEvalue[]; source: Source }> {
   try {
     const r = await appeler<{ vecteur: string; evaluations: unknown }>('/api/audit/vecteur', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vecteur: args.vecteur, texte: args.texte, plans_b64: args.plansB64, tags: args.tags })
+      body: JSON.stringify({ vecteur: args.vecteur, texte: args.texte, plans_b64: args.plansB64, reponses: args.reponses })
     });
     if (!Array.isArray(r.evaluations) || !r.evaluations.every(evaluationValide)) {
       throw new Error('Réponse /api/audit/vecteur inattendue : elle ne correspond pas à BatchAuditResponse (schemas.py).');
@@ -84,7 +85,7 @@ export async function evaluerVecteur(args: {
       note: e.note ?? null,
       type_preuve: e.type_preuve ?? null,
       preuve_extrait: e.preuve_extrait ?? null,
-      quick_win: e.quick_win ?? null
+      quick_win_ia: e.quick_win_ia ?? null
     }));
     return { evaluations, source: 'api' };
   } catch (e) {

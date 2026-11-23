@@ -14,11 +14,14 @@ const FILTRES: { k: Filtre; label: string }[] = [
 ];
 
 function LigneCritere({ l }: { l: LigneAudit }) {
-  const { state, dispatch, evaluations } = useAudit();
+  const { state, dispatch } = useAudit();
   const c = l.critere;
   const selectionne = state.selCritere === c.id;
   const aUneNote = l.note !== null;
-  const typePreuve = evaluations.get(c.id)?.type_preuve ?? null;
+  const saisie = l.corrigee || !l.preuve; // zone de saisie de la référence : notes corrigées ou sans extrait
+
+  const modifier = (note: number | null, typePreuve: string | null, preuve: string | null) =>
+    dispatch({ type: 'note', id: c.id, note, typePreuve: note === null ? null : typePreuve, preuve: note === null ? null : preuve });
 
   return (
     <div className={`row${selectionne ? ' row--sel' : ''}`}>
@@ -31,25 +34,33 @@ function LigneCritere({ l }: { l: LigneAudit }) {
             <Chip>{c.famille}</Chip>
             <Chip>Cible {c.cible}</Chip>
             {l.noteRetenue !== null && <Chip ton={l.noteRetenue >= c.cible ? 'ok' : 'neutral'}>Note retenue {l.noteRetenue}</Chip>}
-            {l.plafonnee && <Chip ton="warn">Plafonnée par la preuve ({typePreuve})</Chip>}
+            {l.plafonnee && <Chip ton="warn">Plafonnée par la preuve ({l.typePreuve})</Chip>}
+            {l.motifNonRetenue && <Chip ton="bad">Note non retenue : {l.motifNonRetenue}</Chip>}
             {!aUneNote && <Chip>Sans information</Chip>}
             {l.corrigee && <Chip ton="teal">Corrigée à la main</Chip>}
           </div>
         </div>
-        <NoteSelector
-          critereId={c.id}
-          value={l.note}
-          onChange={(n) => dispatch({ type: 'note', id: c.id, note: n, typePreuve: n === null ? null : typePreuve })}
-        />
+        <NoteSelector critereId={c.id} value={l.note} onChange={(n) => modifier(n, l.typePreuve, l.preuve)} />
       </div>
       <div className="row__body">
         <div className="small">
-          <strong>{libelleNote(l.note)}.</strong> {aUneNote ? '' : "Le modèle n'a pas trouvé d'information : ce critère ne compte pas dans le score tant qu'il n'est pas noté."}
+          <strong>{libelleNote(l.note)}.</strong>{' '}
+          {aUneNote ? '' : "Le modèle n'a pas trouvé d'information : ce critère ne compte pas dans le score tant qu'il n'est pas noté."}
         </div>
-        {l.preuve && <blockquote className="quote">{l.preuve}</blockquote>}
+        {l.preuve && !saisie && <blockquote className="quote">{l.preuve}</blockquote>}
         {aUneNote && (
-          <div className="toolbar" style={{ marginTop: 8 }}>
-            <PreuveSelect critereId={c.id} value={typePreuve} onChange={(t) => dispatch({ type: 'note', id: c.id, note: l.note, typePreuve: t })} />
+          <div className="proof">
+            <PreuveSelect critereId={c.id} value={l.typePreuve} onChange={(t) => modifier(l.note, t, l.preuve)} />
+            {saisie && (
+              <input
+                type="text"
+                className="input"
+                aria-label={`Référence de la preuve du critère ${c.id}`}
+                placeholder="Référence de la preuve (pièce, page, plan)"
+                value={l.preuve ?? ''}
+                onChange={(e) => modifier(l.note, l.typePreuve, e.target.value || null)}
+              />
+            )}
           </div>
         )}
       </div>
@@ -99,10 +110,10 @@ function Detail({ c, ligne }: { c: Critere; ligne: LigneAudit | undefined }) {
           <div>{c.question}</div>
         </div>
       )}
-      {ligne?.quickWin && (
+      {ligne?.quickWinIA && (
         <div className="box">
           <div className="eyebrow">Action proposée par le modèle</div>
-          <div>{ligne.quickWin}</div>
+          <div>{ligne.quickWinIA}</div>
         </div>
       )}
       {c.ouRegarder && (
@@ -183,8 +194,8 @@ export default function StepAudit() {
     <div>
       <h1>Auditez les critères</h1>
       <p className="lead">
-        Les notes viennent du modèle, avec la preuve citée. Corrigez celles qui vous semblent fausses, précisez le type de preuve (il plafonne la note), ou écartez un
-        critère sans objet en indiquant pourquoi : le score et le plan d'action se recalculent immédiatement.
+        Les notes viennent du modèle, avec la preuve citée. Une note ne compte que si elle a un type de preuve et une référence (sauf « Aucune »), et le type
+        la plafonne. Corrigez, complétez, ou écartez un critère sans objet en indiquant pourquoi : le score se recalcule immédiatement.
       </p>
       <div className="cols">
         <aside className="col col--nav card">

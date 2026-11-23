@@ -25,7 +25,7 @@ export function evaluationsSimulees(vecteur: string, applicables: string[], text
     const h = hash(c.id + texte.length);
     const t = h % 100;
     // ~35 % des critères restent « sans information », comme avec le vrai modèle.
-    if (t < 35) return { id_critere: c.id, note: null, type_preuve: null, preuve_extrait: null, quick_win: null };
+    if (t < 35) return { id_critere: c.id, note: null, type_preuve: null, preuve_extrait: null, quick_win_ia: null };
     const note = t < 45 ? 0 : t < 65 ? 1 : t < 85 ? 2 : t < 96 ? 3 : 4;
     const types = ['Declaratif', 'Notice / CCTP', 'Visible sur plan', 'Visible sur plan', 'PV / mesure'];
     return {
@@ -33,7 +33,7 @@ export function evaluationsSimulees(vecteur: string, applicables: string[], text
       note,
       type_preuve: note === 0 ? 'Aucune' : types[h % types.length],
       preuve_extrait: note === 0 ? 'Aucune mention (simulé)' : extraits.length ? extraits[h % extraits.length] : 'Observation sur plan (simulée)',
-      quick_win: note <= 2 ? c.quickWinAssocie || 'Compléter la conception de ce critère (simulé).' : null
+      quick_win_ia: note <= 2 ? c.quickWinAssocie || 'Compléter la conception de ce critère (simulé).' : null
     };
   });
 }

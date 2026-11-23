@@ -35,6 +35,27 @@ export default function StepDossier() {
         trouvée. Rien n'est inventé : un critère sans information reste vide.
       </p>
 
+      <section className="card demo-card">
+        <div>
+          <h2>Présenter sans rien saisir</h2>
+          <p className="muted" style={{ margin: 0 }}>
+            Charge le dossier fictif « Les Jardins de la Gare » avec des résultats d'audit préenregistrés : aucun backend, aucune clé API, aucun appel payant. Les
+            notes restent modifiables pour montrer le recalcul du score.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn btn--primary"
+          disabled={state.enCours}
+          onClick={() => {
+            if (!state.auditLance && !state.texte && !state.projet.nom) dispatch({ type: 'demo' });
+            else if (window.confirm('Remplacer le dossier en cours par le dossier de démonstration ?')) dispatch({ type: 'demo' });
+          }}
+        >
+          Charger la démonstration
+        </button>
+      </section>
+
       <div className="cols">
         <div className="col col--main">
           <section className="card">
@@ -157,7 +178,7 @@ export default function StepDossier() {
               <input
                 ref={refPlans}
                 type="file"
-                accept="image/png,image/jpeg,application/pdf"
+                accept="image/png,image/jpeg"
                 multiple
                 hidden
                 onChange={(e) => {
@@ -178,7 +199,7 @@ export default function StepDossier() {
               ))}
             </div>
             <p className="muted small">
-              Le modèle lit aussi les plans : un critère « visible sur plan » peut être noté jusqu'à 3. Au-delà de {MAX_PLANS} plans, seuls les {MAX_PLANS} premiers sont
+              Plans en images PNG ou JPEG (pour un plan en PDF, exportez-le d'abord en image). Le modèle lit aussi les plans : un critère « visible sur plan » peut être noté jusqu'à 3. Au-delà de {MAX_PLANS} plans, seuls les {MAX_PLANS} premiers sont
               transmis.
             </p>
 

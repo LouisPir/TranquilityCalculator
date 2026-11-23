@@ -18,8 +18,9 @@ export default function Header() {
         </div>
       </div>
       <div className="header__right">
-        {state.source === 'mock' && <Chip ton="warn">Mode démo : réponses simulées</Chip>}
-        {state.source === 'api' && state.auditLance && <Chip ton="teal">Audit réalisé par le backend</Chip>}
+        {state.demo && <Chip ton="teal">Dossier de démonstration : résultats préenregistrés</Chip>}
+        {!state.demo && state.source === 'mock' && <Chip ton="warn">Mode démo : réponses simulées</Chip>}
+        {!state.demo && state.source === 'api' && state.auditLance && <Chip ton="teal">Audit réalisé par le backend</Chip>}
         {(state.auditLance || state.projet.nom || state.texte) && (
           <button
             type="button"

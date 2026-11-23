@@ -11,7 +11,7 @@ npm run dev              # http://localhost:5173
 npm run build            # production, dossier dist/
 ```
 
-Backend (dans l'autre terminal) : `uvicorn backend.main:app --reload --port 8000`.
+Backend (dans l'autre terminal) : `uvicorn backend.api:app --reload --port 8000`.
 
 Sans backend joignable, le front passe en **mode démo** (réponses simulées, bandeau orange) tant que `VITE_ALLOW_MOCK` n'est pas `false`. Seules les pannes réseau déclenchent le mode démo : une erreur 500 du backend est affichée, jamais masquée.
 
@@ -22,14 +22,21 @@ Sans backend joignable, le front passe en **mode démo** (réponses simulées, b
 3. **Score** : note sur 100 et sur 4, niveau (Inexistant, Initié, Structuré, Consolidé, Exemplaire), couverture, badge **provisoire / final**, scores par vecteur groupés par axe, points forts et vigilances déduits.
 4. **Plan d'action** : quick wins classés par priorité, classe de coût et fourchette en k€ ajustée à la parcelle, score projeté, export PDF (impression) et JSON.
 
-Le score est « final » seulement si la couverture est de 100 %, les 9 questions de contexte sont répondues et les 14 vecteurs sont dans le périmètre.
+Le score global est la **moyenne des scores des vecteurs notés** (poids de vecteur = 1, comme `calculer` du backend). Une note n'est retenue que si elle a un **type de preuve** et un **extrait** (sauf type « Aucune ») ; elle est plafonnée par le type (PV / mesure 4, Visible sur plan 3, Notice / CCTP 3, Déclaratif 1, Aucune 0). Le score est « final » seulement si la couverture est de 100 %, les 9 questions de contexte sont répondues et les 14 vecteurs sont dans le périmètre.
 
-## Contrat d'API attendu
+## Mode démonstration (pour présenter)
 
-`backend/main.py` étant vide, voici ce que le front appelle. Les formats sont ceux de `schemas.py`.
+Le bouton **« Charger la démonstration »** en haut de l'étape 1 charge le dossier fictif « Les Jardins de la Gare » et 40 résultats d'audit préenregistrés (score affiché : 54 / 100, niveau 2 « Structuré », 14 actions chiffrées, 71 à 405 k€ HT) (`src/data/demo.ts`) : pas de backend, pas de clé API, pas d'appel payant. Les notes restent modifiables, donc le recalcul du score se montre en direct. Le score reste volontairement provisoire (17 % de couverture, 40 critères retenus sur 241) : le dossier fictif ne dit rien de l'entretien, du signalement ni du logement, ce qui illustre le rôle de la couverture. Pour changer le scénario, modifier `DEMO_TEXTE` et `DEMO_EVALUATIONS`.
+
+## Contrat d'API
+
+`backend/api.py` (fichier **ajouté** ; `main.py` et `run_full_audit` ne sont pas touchés) expose les routes ci-dessous. Les formats sont ceux de `schemas.py`.
+
+### `GET /api/health`
+`{"ok": true, "criteres": 242, "vecteurs": 14, "cle_ollama": true, "modele": "gemma4"}` ; en 500 avec un message si `data/referentiel_242.xlsx` est absent ou mal formé.
 
 ### `POST /api/extraction` (multipart)
-Champs : `pdf` (optionnel), `plans` (0 à 5 fichiers). Réponse :
+Champs : `pdf` (optionnel), `plans` (0 à 5 images PNG/JPEG). Réponse :
 ```json
 { "texte": "…texte nettoyé du PDF…", "plans_b64": ["…image base64…"] }
 ```
@@ -37,44 +44,51 @@ Le front n'appelle cette route que si un PDF ou des plans sont joints ; sinon il
 
 ### `POST /api/audit/vecteur` (JSON)
 ```json
-{ "vecteur": "V03", "texte": "…", "plans_b64": ["…"], "tags": ["ESP", "VOI", "LOG"] }
+{ "vecteur": "V03", "texte": "…", "plans_b64": ["…"],
+  "reponses": { "ESP": true, "VOI": true, "EXT": null, "PRK": true, "LOG": true, "RDC": true, "EQP": null, "TC": null, "REH": false } }
 ```
-`tags` = tags de contexte **actifs** (réponse différente de « Non »). Réponse :
+`reponses` = les 9 questions de contexte (`null` = sans réponse, les critères restent actifs), directement passées à `filter_applicable_criteria`. Réponse :
 ```json
 { "vecteur": "V03", "evaluations": [
   { "id_critere": "T06.01", "note": 2, "type_preuve": "Visible sur plan",
-    "preuve_extrait": "…", "quick_win": "…" } ] }
+    "preuve_extrait": "…", "quick_win_ia": "…" } ] }
 ```
-Le backend filtre les critères du vecteur avec `filter_applicable_criteria(df, set(tags))`, appelle le LLM une fois et renvoie la liste. Le front ignore tout `id_critere` inconnu ou hors vecteur et dédoublonne (le dernier gagne).
+La route filtre les critères du vecteur, appelle `evaluer_propal_vision(..., vecteurs_cibles=[vecteur])` (lots de 20 critères) et ignore tout `id_critere` hors vecteur. Les erreurs du modèle sortent en 500 **avec** un message. Le front dédoublonne (la première évaluation d'un id gagne, comme `drop_duplicates`).
 
-Squelette possible de `main.py` :
-```python
-@app.post("/api/audit/vecteur")
-def audit_vecteur(req: VecteurRequest):
-    df = parser.filter_applicable_criteria(CRITERES, set(req.tags))
-    df = df[df["vecteur"].str.startswith(req.vecteur)]
-    evals = llm_engine.evaluer_vecteur(df, req.texte, req.plans_b64)   # nom indicatif
-    return {"vecteur": req.vecteur, "evaluations": [e.model_dump() for e in evals]}
-```
 Le calcul du score (`compute_audit_242`) n'est **pas** appelé par le front : il est porté dans `src/lib/calcul.ts` pour recalculer instantanément quand l'utilisateur corrige une note.
+
+## Brancher le vrai backend
+
+Arborescence attendue :
+```
+TranquilityCalculator/
+  .env                         OLLAMA_API_KEY=...   (ne jamais le committer)
+  backend/                     calculator.py, llm_engine.py, parser.py, schemas.py, main.py, api.py, __init__.py
+  data/referentiel_242.xlsx    classeur avec les feuilles « Vecteurs » et « Grille »
+  frontend/
+```
+```bash
+pip install -r requirements.txt
+uvicorn backend.api:app --reload --port 8000      # depuis TranquilityCalculator/, pas depuis backend/
+```
+Vérifier : http://localhost:8000/api/health doit répondre `{"ok":true,"criteres":242,"vecteurs":14,…}`. Puis `npm run dev` dans `frontend/`.
+Le front traite 502/503/504 et un 500 sans corps comme « backend éteint » (mode démo). Les erreurs du modèle sont renvoyées en 500 **avec** un message, pour être affichées.
 
 ## Vérification du calcul
 
-`src/lib/calcul.ts` a été comparé à `calculator.compute_audit_242` sur 6 jeux aléatoires (242 critères, notes vides, tous les types de preuve, surfaces de 800 à 60 000 m²) : score global, note sur 4, couverture, 14 scores par vecteur, liste des quick wins et fourchettes de coût sont **identiques**. L'arrondi reproduit celui de Python (31,25 → 31,2).
+`src/lib/calcul.ts` a été comparé à `calculator.compute_audit_242` sur 10 jeux aléatoires (242 critères, notes vides, doublons d'évaluations, types de preuve inconnus ou avec espaces, extraits vides, 9 réponses de contexte tirées au hasard, surfaces de 800 à 90 000 m²) : score global, note sur 4, niveau, scores par axe et par vecteur, points forts / marges, liste des quick wins (priorité, coût, ordre), budget et recommandations du modèle sont **identiques**. L'arrondi reproduit celui de Python (31,25 → 31,2).
 
-## Écarts à trancher avec le backend / le classeur
+⚠️ Cette égalité suppose le correctif suivant dans `calculator.py` : après `pd.merge(..., how="left")`, une valeur absente est un `NaN` (un `float`), qui est « vrai » en Python, donc `str(row.get("type_preuve") or "")` donne `"nan"`. Sans correctif, une note sans type de preuve est retenue comme 0, et un type valide sans extrait est retenu : la règle « preuve manquante = note non retenue » ne s'applique pas. Correctif (déjà appliqué dans `backend/calculator.py` livré) : une petite fonction `_txt(v)` qui renvoie `""` pour `None` / `NaN`, utilisée pour `type_preuve`, `preuve_extrait`, `quick_win_referentiel`, `classe_cout`, `facilite` et `quick_win_ia`.
 
-| Sujet | Backend (`calculator.py`) | Classeur | Ce que fait le front |
-|---|---|---|---|
-| Classes de coût (k€, parcelle < 5 000 m²) | € 5–20, €€ 20–80, €€€ 80–250 | € 1–10, €€ 10–50, €€€ 50–200 | valeurs du backend (`config.ts`) |
-| Coefficient de parcelle | 3 tranches : 1 / 1,8 / 3 (5 000 et 20 000 m²) | 4 tranches : 1 / 1,5 / 2,5 / 4 | valeurs du backend |
-| Preuve absente | plafond 4 | « sans preuve, pas de note retenue » | comportement du backend ; `EXIGER_PREUVE_POUR_NOTER = true` dans `config.ts` applique la règle du classeur |
-| Classe de coût / facilité vides | « € » par défaut pour le coût, **NaN** pour la facilité | — | 190 critères sur 242 n'en ont pas : défauts « € » et « Moyenne », signalés « Coût par défaut » |
-| `quick_win` nul | `row.get("quick_win") or …` : un NaN est « vrai », l'action devient NaN | — | le front retombe sur l'action du référentiel |
-| `details` | `df.to_dict()` contient des NaN, JSON invalide | — | non utilisé par le front |
-| Doublons d'évaluations | le merge pandas duplique les lignes | — | le front dédoublonne (un id = une évaluation) |
+## Points à surveiller dans le classeur
 
-Les constantes concernées sont dans `src/config.ts` : si le backend change, y aligner les valeurs.
+| Sujet | Détail |
+|---|---|
+| Classe de coût « 0 » | `COST_CLASSES_KEUR` a des clés **texte** (`"0"`, `"€"`…). Si l'export Excel transforme la cellule en nombre 0, la classe est ignorée sans erreur : garder la colonne « Coût » au format texte. |
+| Critères chiffrables | Seuls 52 critères sur 242 ont une classe de coût **et** une facilité : les autres, sous la cible, ne donnent qu'une suggestion du modèle (tableau « non chiffrées » du plan d'action). |
+| Cible et poids | Cible fixée à 3 et poids à 1 pour tous les critères (`parser.py`) ; vecteurs à poids 1. |
+
+Les constantes concernées sont dans `src/config.ts` : si `calculator.py` change, y aligner les valeurs.
 
 ## Structure
 

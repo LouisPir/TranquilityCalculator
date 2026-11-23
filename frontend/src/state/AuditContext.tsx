@@ -2,12 +2,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import { STORAGE_KEY } from '../config';
 import { evaluerVecteur, extraire } from '../lib/api';
 import { calculer } from '../lib/calcul';
-import { CRITERES, VECTEURS, estApplicable, getCritere, tagsActifs } from '../lib/referentiel';
+import { DEMO_EVALUATIONS, DEMO_PIECES, DEMO_PROJET, DEMO_REPONSES, DEMO_TEXTE } from '../data/demo';
+import { CRITERES, TAGS, VECTEURS, estApplicable, getCritere, tagsActifs } from '../lib/referentiel';
 import type { Critere, CritereEvalue, Projet, Reponse, ResultatAudit, Source, StatutRun, Step } from '../types';
 
 interface Correction {
   note: number | null;
   type_preuve: string | null;
+  preuve_extrait: string | null; // référence de la preuve (obligatoire sauf type « Aucune »)
 }
 
 interface State {
@@ -32,6 +34,7 @@ interface State {
   selVecteur: string;
   selCritere: string | null;
   auditLance: boolean;
+  demo: boolean; // résultats préenregistrés (dossier de démonstration)
 }
 
 type Action =
@@ -49,12 +52,13 @@ type Action =
   | { type: 'runStatut'; vecteur: string; statut: StatutRun; erreur?: string }
   | { type: 'runOk'; vecteur: string; evaluations: CritereEvalue[]; source: Source }
   | { type: 'fin'; erreur: string | null }
-  | { type: 'note'; id: string; note: number | null; typePreuve: string | null }
+  | { type: 'note'; id: string; note: number | null; typePreuve: string | null; preuve: string | null }
   | { type: 'noteReset'; id: string }
   | { type: 'ecarte'; id: string; motif: string | null }
   | { type: 'retiree'; id: string }
   | { type: 'selVecteur'; code: string; premier: string | null }
   | { type: 'selCritere'; id: string }
+  | { type: 'demo' }
   | { type: 'reset' };
 
 const initial: State = {
@@ -78,7 +82,8 @@ const initial: State = {
   retirees: {},
   selVecteur: VECTEURS[0].code,
   selCritere: null,
-  auditLance: false
+  auditLance: false,
+  demo: false
 };
 
 function charger(): State {
@@ -135,7 +140,7 @@ function reducer(s: State, a: Action): State {
         runs[v] = 'attente';
         delete erreurs[v];
       }
-      return { ...s, enCours: true, erreurGlobale: null, evalBrutes, runs, erreurs };
+      return { ...s, enCours: true, erreurGlobale: null, evalBrutes, runs, erreurs, demo: false };
     }
     case 'texteAudit':
       return { ...s, texteAudit: a.texte, source: a.source };
@@ -145,9 +150,12 @@ function reducer(s: State, a: Action): State {
     }
     case 'runOk': {
       const evalBrutes = { ...s.evalBrutes };
+      const vus = new Set<string>();
       for (const e of a.evaluations) {
         const c = getCritere(e.id_critere);
-        if (c && c.vecteur === a.vecteur) evalBrutes[e.id_critere] = e; // dernier gagne : pas de doublon
+        if (!c || c.vecteur !== a.vecteur || vus.has(e.id_critere)) continue; // doublon : la première évaluation gagne, comme drop_duplicates
+        vus.add(e.id_critere);
+        evalBrutes[e.id_critere] = e;
       }
       return { ...s, evalBrutes, runs: { ...s.runs, [a.vecteur]: 'ok' }, erreurs: sans(s.erreurs, a.vecteur), source: a.source };
     }
@@ -156,7 +164,7 @@ function reducer(s: State, a: Action): State {
       return { ...s, enCours: false, erreurGlobale: a.erreur, auditLance: s.auditLance || unOk, step: unOk ? 2 : s.step };
     }
     case 'note':
-      return { ...s, corrections: { ...s.corrections, [a.id]: { note: a.note, type_preuve: a.typePreuve } } };
+      return { ...s, corrections: { ...s.corrections, [a.id]: { note: a.note, type_preuve: a.typePreuve, preuve_extrait: a.preuve } } };
     case 'noteReset':
       return { ...s, corrections: sans(s.corrections, a.id) };
     case 'ecarte':
@@ -167,6 +175,20 @@ function reducer(s: State, a: Action): State {
       return { ...s, selVecteur: a.code, selCritere: a.premier };
     case 'selCritere':
       return { ...s, selCritere: a.id };
+    case 'demo':
+      return {
+        ...initial,
+        step: 2,
+        projet: DEMO_PROJET,
+        reponses: DEMO_REPONSES,
+        pieces: Object.fromEntries(DEMO_PIECES.map((p) => [p, true])),
+        texte: DEMO_TEXTE,
+        texteAudit: DEMO_TEXTE,
+        runs: Object.fromEntries(VECTEURS.map((v) => [v.code, 'ok' as StatutRun])),
+        evalBrutes: Object.fromEntries(DEMO_EVALUATIONS.map((x) => [x.id_critere, x])),
+        auditLance: true,
+        demo: true
+      };
     case 'reset':
       return { ...initial };
   }
@@ -230,8 +252,9 @@ export function AuditProvider({ children }: { children: ReactNode }) {
       }
 
       // 2) Un appel par vecteur, l'un après l'autre (budget et limites de débit côté backend).
-      const tags = [...tagsActifs(s0.reponses)];
-      const applicablesIds = CRITERES.filter((c) => estApplicable(c, new Set(tags))).map((c) => c.id);
+      const reponses = Object.fromEntries(TAGS.map((t) => [t.code, s0.reponses[t.code] === 'oui' ? true : s0.reponses[t.code] === 'non' ? false : null]));
+      const actifs = tagsActifs(s0.reponses);
+      const applicablesIds = CRITERES.filter((c) => estApplicable(c, actifs)).map((c) => c.id);
       for (const v of cibles) {
         dispatch({ type: 'runStatut', vecteur: v, statut: 'en_cours' });
         let derniereErreur = '';
@@ -242,7 +265,7 @@ export function AuditProvider({ children }: { children: ReactNode }) {
               vecteur: v,
               texte,
               plansB64: plansB64.current,
-              tags,
+              reponses,
               applicables: applicablesIds
             });
             dispatch({ type: 'runOk', vecteur: v, evaluations: r.evaluations, source: r.source });
@@ -281,8 +304,8 @@ export function AuditProvider({ children }: { children: ReactNode }) {
           id_critere: c.id,
           note: corr.note,
           type_preuve: corr.type_preuve,
-          preuve_extrait: brute?.preuve_extrait ?? null,
-          quick_win: brute?.quick_win ?? null
+          preuve_extrait: corr.preuve_extrait,
+          quick_win_ia: brute?.quick_win_ia ?? null
         });
       } else if (brute) {
         ev.set(c.id, brute);
@@ -295,7 +318,7 @@ export function AuditProvider({ children }: { children: ReactNode }) {
   }, [applicables, state.evalBrutes, state.corrections, state.projet.surfaceM2]);
 
   const nbQuestionsRepondues = Object.values(state.reponses).filter((r) => r === 'oui' || r === 'non').length;
-  const scoreFinal = resultat.nbApplicables > 0 && resultat.couverturePct >= 100 && nbQuestionsRepondues >= 9 && state.vecteursChoisis.length === VECTEURS.length;
+  const scoreFinal = resultat.nbApplicables > 0 && !resultat.scoreIndicatif && nbQuestionsRepondues >= 9 && state.vecteursChoisis.length === VECTEURS.length;
   const nbRelances = Object.values(state.runs).filter((r) => r === 'erreur').length;
 
   const valeur = useMemo<Valeur>(

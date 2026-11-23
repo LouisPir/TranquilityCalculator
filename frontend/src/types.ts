@@ -40,7 +40,7 @@ export interface CritereEvalue {
   note: number | null; // 0 à 4, null = aucune information trouvée
   type_preuve: string | null; // 'PV / mesure' | 'Visible sur plan' | 'Notice / CCTP' | 'Declaratif' | null
   preuve_extrait: string | null;
-  quick_win: string | null;
+  quick_win_ia: string | null; // recommandation du modèle (note ≤ 2 uniquement)
 }
 
 export type TypePreuve = 'PV / mesure' | 'Visible sur plan' | 'Notice / CCTP' | 'Declaratif' | 'Aucune';
@@ -51,18 +51,32 @@ export interface LigneAudit {
   note: number | null;
   typePreuve: string | null;
   preuve: string | null;
-  quickWin: string | null;
+  quickWinIA: string | null;
   noteRetenue: number | null;
   plafonnee: boolean; // la preuve a fait baisser la note
+  motifNonRetenue: string | null; // note saisie mais non retenue : preuve ou type de preuve manquant
   corrigee: boolean; // modifiée à la main
+}
+
+export interface Niveau {
+  index: number; // 0 à 4
+  nom: string; // Inexistant, Initié, Structuré, Consolidé, Exemplaire
 }
 
 export interface ScoreVecteur {
   vecteur: string;
-  score100: number | null; // null tant qu'aucun critère n'est évalué
+  axe: string;
+  score100: number | null; // null tant qu'aucun critère n'est retenu
   noteSur4: number | null;
+  brut4: number | null; // note /4 non arrondie, pour les moyennes
   evalues: number;
   applicables: number;
+}
+
+export interface ScoreAxe {
+  axe: string;
+  score100: number | null;
+  noteSur4: number | null;
 }
 
 export interface QuickWin {
@@ -72,26 +86,46 @@ export interface QuickWin {
   noteRetenue: number;
   cible: number;
   ecart: number;
-  action: string;
+  action: string; // action du référentiel
+  actionIA: string | null; // suggestion du modèle, si elle existe
+  phase: string;
   facilite: string;
   classeCout: string;
-  coutParDefaut: boolean; // classe de coût absente du référentiel
   coutMinKeur: number;
   coutMaxKeur: number;
   priorite: number;
 }
 
+// Critère sous la cible, sans classe de coût ni facilité dans le référentiel : seule la suggestion du modèle existe.
+export interface RecoIA {
+  id: string;
+  vecteur: string;
+  libelle: string;
+  noteRetenue: number;
+  cible: number;
+  action: string;
+  phase: string;
+}
+
 export interface ResultatAudit {
   scoreGlobal100: number;
   noteSur4: number;
+  niveau: Niveau;
+  scoreIndicatif: boolean; // couverture < 100 %
   couverturePct: number;
   nbApplicables: number;
   nbEvalues: number;
   nbVides: number;
   nbPlafonnees: number;
+  nbSansPreuve: number; // notes saisies mais non retenues faute de preuve
   coeffParcelle: number;
+  parAxe: ScoreAxe[];
   parVecteur: ScoreVecteur[];
-  quickWins: QuickWin[];
+  pointsForts: ScoreVecteur[]; // 3 meilleurs vecteurs
+  margesProgression: ScoreVecteur[]; // 3 plus faibles, le plus faible d'abord
+  quickWins: QuickWin[]; // top 20 par priorité (comme backend : max_quick_wins)
+  nbQuickWinsHorsTop: number;
+  recosIA: RecoIA[];
   lignes: LigneAudit[];
 }
 

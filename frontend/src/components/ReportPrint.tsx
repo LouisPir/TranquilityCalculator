@@ -1,5 +1,6 @@
 import { MAX_NOTE } from '../config';
-import { maturite, scoreProjete } from '../lib/calcul';
+import { projection } from '../lib/calcul';
+import Radar from './Radar';
 import { fr } from '../lib/format';
 import { getVecteur } from '../lib/referentiel';
 import { useAudit } from '../state/AuditContext';
@@ -8,9 +9,10 @@ import { useAudit } from '../state/AuditContext';
 export default function ReportPrint() {
   const { state, resultat: r, scoreFinal, horsPerimetre } = useAudit();
   if (!state.auditLance) return null;
-  const retenus = new Set(r.quickWins.filter((q) => !state.retirees[q.id]).map((q) => q.id));
-  const choisis = r.quickWins.filter((q) => retenus.has(q.id));
-  const niveau = maturite(r.noteSur4);
+  const choisis = r.quickWins.filter((q) => !state.retirees[q.id]);
+  const recos = r.recosIA.filter((q) => !state.retirees[q.id]);
+  const retenus = new Set([...choisis.map((q) => q.id), ...recos.map((q) => q.id)]);
+  const niveau = r.niveau;
   const ecartes = Object.entries(state.ecartes);
 
   return (
@@ -22,9 +24,26 @@ export default function ReportPrint() {
           .join(' · ')}
       </p>
       <p>
-        Score de maturité {scoreFinal ? 'final' : 'provisoire'} : <strong>{Math.round(r.scoreGlobal100)} / 100</strong> (note {fr(r.noteSur4, 2)} sur {MAX_NOTE}, niveau{' '}
-        {niveau.niveau}). {r.nbEvalues} critères notés sur {r.nbApplicables} applicables (couverture {fr(r.couverturePct)} %) ; {horsPerimetre} critères écartés par le contexte.
+        Score de maturité {scoreFinal ? 'final' : 'provisoire'} : <strong>{Math.round(r.scoreGlobal100)} / 100</strong> (note {fr(r.noteSur4, 2)} sur {MAX_NOTE}, niveau {niveau.index}{' '}
+        {niveau.nom}). {r.nbEvalues} critères notés sur {r.nbApplicables} applicables (couverture {fr(r.couverturePct)} %) ; {horsPerimetre} critères écartés par le contexte.
       </p>
+
+      <h2>Score par axe</h2>
+      <ul>
+        {r.parAxe.map((a) => (
+          <li key={a.axe}>
+            Axe {a.axe} : {a.score100 === null ? '–' : `${fr(a.score100)} / 100`}
+          </li>
+        ))}
+      </ul>
+
+      <h2>Radar des 14 vecteurs</h2>
+      <Radar
+        series={[
+          { nom: 'Score actuel', valeurs: Object.fromEntries(r.parVecteur.map((v) => [v.vecteur, v.score100])), couleur: '#1b6a73', remplir: true },
+          { nom: 'Score projeté', valeurs: projection(r, retenus).parVecteur, couleur: '#c2620a', tirets: true }
+        ]}
+      />
 
       <h2>Score par vecteur</h2>
       <table>
@@ -52,7 +71,7 @@ export default function ReportPrint() {
 
       <h2>Plan d'action retenu</h2>
       <p>
-        {choisis.length} actions ; score projeté {Math.round(scoreProjete(r, retenus))} / 100 ; coût estimé {fr(choisis.reduce((s, q) => s + q.coutMinKeur, 0), 0)} à{' '}
+        {choisis.length} actions chiffrées et {recos.length} suggestions ; score projeté {Math.round(projection(r, retenus).global100)} / 100 ; coût estimé {fr(choisis.reduce((s, q) => s + q.coutMinKeur, 0), 0)} à{' '}
         {fr(choisis.reduce((s, q) => s + q.coutMaxKeur, 0), 0)} k€ HT (coefficient de parcelle ×{fr(r.coeffParcelle, 1)}).
       </p>
       <ol>
@@ -62,6 +81,19 @@ export default function ReportPrint() {
           </li>
         ))}
       </ol>
+
+      {recos.length > 0 && (
+        <>
+          <h2>Suggestions du modèle (non chiffrées)</h2>
+          <ul>
+            {recos.map((q) => (
+              <li key={q.id}>
+                {q.action} <em>({q.id}, note {q.noteRetenue} → {q.cible})</em>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
 
       {ecartes.length > 0 && (
         <>

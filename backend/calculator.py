@@ -31,6 +31,13 @@ AXE_LABELS = {
 }
 
 
+def _txt(value: Any) -> str:
+    """Texte nettoyé ; vide si la valeur est None ou NaN.
+    Après le pd.merge, un `null` renvoyé par le modèle devient NaN, et NaN est « vrai » en Python
+    (`nan or ""` donne nan) : sans ce filtre, un extrait ou un type de preuve absent passait pour présent."""
+    return "" if value is None or pd.isna(value) else str(value).strip()
+
+
 def get_parcel_coeff(surface_m2: float) -> float:
     """Exact parcel size cost multiplier from Paramètres!R10:T13."""
     if surface_m2 < 5000:
@@ -69,8 +76,8 @@ def compute_audit_242(
     def compute_note_retenue(row):
         if pd.isna(row["note"]):
             return None
-        tp = str(row.get("type_preuve") or "").strip()
-        ref = str(row.get("preuve_extrait") or "").strip()
+        tp = _txt(row.get("type_preuve"))
+        ref = _txt(row.get("preuve_extrait"))
         if not tp or (tp != "Aucune" and len(ref) == 0):
             return None
         max_allowed = PROOF_MAX_NOTE.get(tp, 0)
@@ -186,14 +193,14 @@ def compute_audit_242(
                 "cout_max_keur": round(c_max_k * coeff, 1),
                 "priorite": priorite,
             })
-        elif row.get("quick_win_ia"):
+        elif _txt(row.get("quick_win_ia")):
             recommandations_ia.append({
                 "id_critere": row["id_critere"],
                 "vecteur": row["vecteur"],
                 "critere": row["critere"],
                 "note_retenue": int(row["note_retenue"]),
                 "cible": int(row["cible"]),
-                "action_ia": row["quick_win_ia"],
+                "action_ia": _txt(row.get("quick_win_ia")),
                 "phase": row["phase"],
             })
 
