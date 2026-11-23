@@ -1,0 +1,89 @@
+{
+ "tags": [
+  {
+   "code": "ESP",
+   "question": "L'opération crée ou requalifie des espaces publics (voies, places, squares, mails)"
+  },
+  {
+   "code": "VOI",
+   "question": "L'opération crée ou modifie des voiries / intersections"
+  },
+  {
+   "code": "EXT",
+   "question": "L'opération comporte des espaces extérieurs communs (cœur d'îlot, jardins, venelles)"
+  },
+  {
+   "code": "PRK",
+   "question": "L'opération comporte un parking (souterrain, silo ou aérien > 10 places)"
+  },
+  {
+   "code": "LOG",
+   "question": "L'opération comporte des logements"
+  },
+  {
+   "code": "RDC",
+   "question": "L'opération comporte des RDC commerciaux, d'activités ou de services"
+  },
+  {
+   "code": "EQP",
+   "question": "Un équipement public / une école est dans l'opération ou à moins de 200 m"
+  },
+  {
+   "code": "TC",
+   "question": "Un arrêt de transport en commun dessert l'opération (dans ou en limite)"
+  },
+  {
+   "code": "REH",
+   "question": "Réhabilitation, renouvellement urbain ou chantier en site occupé"
+  }
+ ],
+ "pieces": [
+  "Plan masse",
+  "Plans de RDC",
+  "Plans d'étages et de logements",
+  "Coupes et façades",
+  "Plans de parking",
+  "Plan VRD / réseaux",
+  "Plan d'éclairage et notice éclairagiste",
+  "Plan paysager et palette végétale",
+  "Plan de domanialité",
+  "Notice architecturale / de programmation",
+  "CCTP (lots VRD, menuiseries, contrôle d'accès)",
+  "Plan d'installation de chantier et phasage",
+  "Bilan de concertation"
+ ],
+ "maturite": [
+  {
+   "note": 0,
+   "niveau": "Inexistant",
+   "definition": "Le sujet n'est pas traité : rien n'apparaît dans les plans ou pièces écrites."
+  },
+  {
+   "note": 1,
+   "niveau": "Initié",
+   "definition": "Intention ou traitement ponctuel, non dimensionné ou non localisé."
+  },
+  {
+   "note": 2,
+   "niveau": "Structuré",
+   "definition": "Traité et localisé sur les plans, mais de façon partielle."
+  },
+  {
+   "note": 3,
+   "niveau": "Consolidé",
+   "definition": "Traité de façon complète et cohérente sur tout le périmètre ; gestion prévue."
+  },
+  {
+   "note": 4,
+   "niveau": "Exemplaire",
+   "definition": "Au-delà des attendus : documenté, co-construit, suivi dans le temps, réplicable."
+  }
+ ],
+ "niveauxGeneriques": [
+  "Aucun traitement identifiable dans le dossier ou sur le site.",
+  "Intention evoquee, non localisee ou sans porteur/moyens clarifies.",
+  "Traitement identifiable mais incomplet selon les cas et usages applicables.",
+  "Traitement coherent et justifie sur le perimetre applicable, avec pieces et responsabilites.",
+  "Solution verifiee par essai, mesure ou retour d'usage ; corrections suivies et reproductibles."
+ ]
+}

@@ -1,0 +1,142 @@
+[
+ {
+  "code": "V01",
+  "axe": "A",
+  "nom": "Lisibilité & visibilité",
+  "objectif": "Permettre à chacun de se repérer, de voir et d'être vu dans tous les espaces de l'opération.",
+  "enjeux": "Réassurance des usagers ; surveillance naturelle ; orientation des secours et des visiteurs.",
+  "menaces": "Recoins, angles morts, espaces ambigus sans statut clair, adresses introuvables.",
+  "liens": "V02, V06, V10",
+  "statut": "Socle (obligatoire)"
+ },
+ {
+  "code": "V02",
+  "axe": "A",
+  "nom": "Éclairage & ville la nuit",
+  "objectif": "Garantir des parcours nocturnes confortables et rassurants, avec une lumière juste et sobre.",
+  "enjeux": "Le sentiment d'insécurité la nuit génère évitement et renoncement, en particulier pour les femmes.",
+  "menaces": "Zones noires, éblouissement, suréclairage, pannes non traitées, parcours de nuit non pensés.",
+  "liens": "V01, V03, V11",
+  "statut": "Socle (obligatoire)"
+ },
+ {
+  "code": "V03",
+  "axe": "A",
+  "nom": "Parcours & mobilités",
+  "objectif": "Offrir des continuités sûres, lisibles et apaisées pour tous les modes, jusqu'au dernier mètre.",
+  "enjeux": "Sécuriser les flux et les trajets plutôt que des lieux isolés ; réduire les conflits d'usage.",
+  "menaces": "Ruptures de cheminement, traversées dangereuses, vitesses élevées, conflits piétons / vélos / livraisons.",
+  "liens": "V02, V04, V09",
+  "statut": "Socle (obligatoire)"
+ },
+ {
+  "code": "V04",
+  "axe": "A",
+  "nom": "Espaces publics & extérieurs",
+  "objectif": "Concevoir des espaces extérieurs appropriables, robustes et sans hostilité.",
+  "enjeux": "Un espace fréquenté et confortable est un espace apaisé ; abords d'équipements et d'écoles sensibles.",
+  "menaces": "Délaissés, mobilier dégradé, appropriation exclusive, mobilier « anti-usage » excluant.",
+  "liens": "V09, V10, V11",
+  "statut": "Conditionnel"
+ },
+ {
+  "code": "V05",
+  "axe": "A",
+  "nom": "Stationnement & parkings",
+  "objectif": "Faire des parkings des lieux lisibles, contrôlés et rassurants.",
+  "enjeux": "Les parkings concentrent sentiment d'insécurité, usages détournés et coûts de gestion.",
+  "menaces": "Recoins, éclairage faible, accès multiples non contrôlés, squats, épaves.",
+  "liens": "V02, V07, V11",
+  "statut": "Conditionnel"
+ },
+ {
+  "code": "V06",
+  "axe": "B",
+  "nom": "Interfaces public–privé & RDC",
+  "objectif": "Requalifier seuils, halls, pieds d'immeubles et rez-de-chaussée comme des interfaces habitées.",
+  "enjeux": "Les interfaces concentrent usages multiples, responsabilités diffuses et perceptions fragiles.",
+  "menaces": "Façades aveugles, halls en retrait, porches sombres, clôtures opaques, domanialité floue.",
+  "liens": "V01, V07, V11",
+  "statut": "Socle (obligatoire)"
+ },
+ {
+  "code": "V07",
+  "axe": "B",
+  "nom": "Accès & parties communes",
+  "objectif": "Sécuriser les accès et rendre les parties communes visibles, simples et faciles à gérer.",
+  "enjeux": "Qualité du quotidien des résidents ; maîtrise des intrusions ; charges de gestion.",
+  "menaces": "Intrusions, occupation de halls, locaux communs isolés, vols de colis et de vélos.",
+  "liens": "V05, V06, V11",
+  "statut": "Socle (obligatoire)"
+ },
+ {
+  "code": "V08",
+  "axe": "B",
+  "nom": "Logements : sûreté & confort",
+  "objectif": "Protéger les logements exposés et garantir calme, confort d'été et qualité de l'air.",
+  "enjeux": "Le bruit, la chaleur et l'exposition des RDC dégradent sommeil, santé et sentiment de sécurité.",
+  "menaces": "Logements de RDC vulnérables, pièces de nuit sur façade bruyante, surchauffe.",
+  "liens": "V06, V10",
+  "statut": "Conditionnel"
+ },
+ {
+  "code": "V09",
+  "axe": "B",
+  "nom": "Présence, mixité & inclusion",
+  "objectif": "Assurer une présence humaine et des usages variés à toute heure, pour tous les publics.",
+  "enjeux": "La tranquillité varie selon le genre, l'âge, le handicap ; la présence sociale rassure.",
+  "menaces": "Quartier monofonctionnel vide à certaines heures ; espaces conçus pour un seul public.",
+  "liens": "V04, V06, V14",
+  "statut": "Socle (obligatoire)"
+ },
+ {
+  "code": "V10",
+  "axe": "B",
+  "nom": "Confort environnemental & nature",
+  "objectif": "Faire du confort climatique, sonore et de la nature des leviers d'apaisement.",
+  "enjeux": "Chaleur, bruit et minéralité augmentent stress et conflits ; la nature apaise si elle est bien conçue.",
+  "menaces": "Îlots de chaleur, nuisances sonores, végétation formant écrans et cachettes.",
+  "liens": "V01, V04, V08",
+  "statut": "Socle (obligatoire)"
+ },
+ {
+  "code": "V11",
+  "axe": "C",
+  "nom": "Gestion, entretien & robustesse",
+  "objectif": "Garantir que ce qui est conçu pourra être entretenu, réparé et géré dans la durée.",
+  "enjeux": "Un lieu dégradé ou mal entretenu signale l'abandon et appelle les incivilités.",
+  "menaces": "Responsabilités floues, matériaux non standards, pannes longues, dépôts sauvages.",
+  "liens": "V04, V06, V12",
+  "statut": "Socle (obligatoire)"
+ },
+ {
+  "code": "V12",
+  "axe": "C",
+  "nom": "Anticipation des dispositifs de la collectivité",
+  "objectif": "Créer les conditions matérielles pour que la collectivité déploie ses futurs dispositifs.",
+  "enjeux": "L'aménageur facilite l'action publique sans se substituer à la collectivité (logique du label E&T).",
+  "menaces": "Travaux lourds a posteriori, accès secours difficiles, absence de réservations réseaux.",
+  "liens": "V02, V11, V14",
+  "statut": "Socle (obligatoire)"
+ },
+ {
+  "code": "V13",
+  "axe": "C",
+  "nom": "Chantier & transition",
+  "objectif": "Faire du chantier un test réussi d'acceptabilité pour les riverains.",
+  "enjeux": "Les chantiers créent ruptures de parcours, nuisances et zones délaissées pendant des années.",
+  "menaces": "Palissades opaques, cheminements coupés, riverains non informés, emprises abandonnées.",
+  "liens": "V03, V09, V14",
+  "statut": "Socle (obligatoire)"
+ },
+ {
+  "code": "V14",
+  "axe": "C",
+  "nom": "Co-construction, preuve & pilotage",
+  "objectif": "Associer les usagers, documenter et suivre les engagements dans le temps.",
+  "enjeux": "Rendre la démarche vérifiable et utile au dossier de la collectivité ; passer de l'incident au ressenti.",
+  "menaces": "Engagements non tenus, absence de preuves, aucun retour d'usage après livraison.",
+  "liens": "V09, V12, V13",
+  "statut": "Socle (obligatoire)"
+ }
+]
