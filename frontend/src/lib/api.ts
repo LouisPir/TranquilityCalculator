@@ -1,21 +1,18 @@
 import { ALLOW_MOCK, API_TIMEOUT_MS, API_URL, MAX_NOTE } from '../config';
-import type { CritereEvalue, Source } from '../types';
-import { evaluationsSimulees } from './mock';
+import type { ContexteAutoRempli, CritereEvalue, Source } from '../types';
+import { contexteSimule, evaluationsSimulees } from './mock';
 import { codeVecteur } from './referentiel';
 
-// Contrat attendu du backend (voir README) :
+// Expected backend contract:
 //   POST /api/extraction      multipart : pdf?, plans[]?                 -> { texte, plans_b64 }
+//   POST /api/contexte        JSON { texte, plans_b64, nom_fichier? }    -> ContexteAutoRempli
 //   POST /api/audit/vecteur   JSON { vecteur, texte, plans_b64, reponses } -> { vecteur, evaluations: CritereEvalue[] }
-//   reponses = { ESP: true|false|null, … } : les 9 questions de contexte (null = sans réponse, critères gardés)
-// Le score est calculé dans le front (lib/calcul.ts, port de calculator.py).
 
 export interface Extraction {
   texte: string;
   plans_b64: string[];
 }
 
-// Backend injoignable : le proxy de Vite (ou un reverse proxy) répond 502/503/504, ou 500 sans aucun corps.
-// Un vrai plantage du backend (FastAPI) renvoie un corps, il n'entre donc pas dans ce cas.
 class BackendInjoignable extends Error {}
 
 async function appeler<T>(chemin: string, init: RequestInit): Promise<T> {
@@ -26,7 +23,7 @@ async function appeler<T>(chemin: string, init: RequestInit): Promise<T> {
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       if ([502, 503, 504].includes(res.status) || (res.status === 500 && detail.trim() === '')) {
-        throw new BackendInjoignable('Backend injoignable : vérifiez qu\'il est lancé (uvicorn, port 8000).');
+        throw new BackendInjoignable("Backend injoignable : vérifiez qu'il est lancé (uvicorn, port 8000).");
       }
       throw new Error(`Le backend a répondu ${res.status}${detail ? ` : ${detail.slice(0, 200)}` : ''}`);
     }
@@ -36,7 +33,6 @@ async function appeler<T>(chemin: string, init: RequestInit): Promise<T> {
   }
 }
 
-// Seules les pannes réseau (backend éteint, délai dépassé) déclenchent le mode démo.
 const estPanneReseau = (e: unknown): boolean =>
   e instanceof BackendInjoignable || e instanceof TypeError || (e instanceof DOMException && e.name === 'AbortError');
 
@@ -56,11 +52,43 @@ export async function extraire(pdf: File | null, plans: File[], textePrecolle: s
     if (pdf) fd.append('pdf', pdf);
     plans.forEach((p) => fd.append('plans', p));
     const r = await appeler<Extraction>('/api/extraction', { method: 'POST', body: fd });
-    if (typeof r.texte !== 'string' || !Array.isArray(r.plans_b64)) throw new Error('Réponse /api/extraction inattendue (attendu : texte, plans_b64).');
+    if (typeof r.texte !== 'string' || !Array.isArray(r.plans_b64)) {
+      throw new Error('Réponse /api/extraction inattendue (attendu : texte, plans_b64).');
+    }
     return { extraction: { texte: [textePrecolle, r.texte].filter(Boolean).join('\n\n'), plans_b64: r.plans_b64 }, source: 'api' };
   } catch (e) {
     if (ALLOW_MOCK && estPanneReseau(e)) return { extraction: { texte: textePrecolle, plans_b64: [] }, source: 'mock' };
     throw e instanceof Error ? e : new Error('Erreur inconnue');
+  }
+}
+
+// Auto-fills Step 1 fields (operation metadata, 9 applicability answers, detected documents) from extracted content.
+export async function analyserContexte(args: {
+  texte: string;
+  plansB64: string[];
+  nomFichier?: string;
+}): Promise<{ contexte: ContexteAutoRempli; source: Source }> {
+  try {
+    const r = await appeler<ContexteAutoRempli>('/api/contexte', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texte: args.texte, plans_b64: args.plansB64, nom_fichier: args.nomFichier ?? null })
+    });
+    return {
+      contexte: {
+        projet: r.projet ?? {},
+        reponses: r.reponses ?? {},
+        pieces: Array.isArray(r.pieces) ? r.pieces : []
+      },
+      source: 'api'
+    };
+  } catch (e) {
+    // Fall back to local heuristic extraction if /api/contexte is not deployed yet (404) or in offline mock mode.
+    const is404 = e instanceof Error && e.message.includes('404');
+    if (is404 || (ALLOW_MOCK && estPanneReseau(e))) {
+      return { contexte: contexteSimule(args.texte, args.nomFichier), source: 'mock' };
+    }
+    throw e instanceof Error ? e : new Error('Erreur inconnue lors du pré-remplissage');
   }
 }
 
@@ -69,7 +97,7 @@ export async function evaluerVecteur(args: {
   texte: string;
   plansB64: string[];
   reponses: Record<string, boolean | null>;
-  applicables: string[]; // ids applicables, utilisés seulement par le mode démo
+  applicables: string[];
 }): Promise<{ evaluations: CritereEvalue[]; source: Source }> {
   try {
     const r = await appeler<{ vecteur: string; evaluations: unknown }>('/api/audit/vecteur', {
@@ -90,7 +118,7 @@ export async function evaluerVecteur(args: {
     return { evaluations, source: 'api' };
   } catch (e) {
     if (ALLOW_MOCK && estPanneReseau(e)) {
-      await new Promise((ok) => setTimeout(ok, 350)); // laisse voir la progression en démo
+      await new Promise((ok) => setTimeout(ok, 350));
       return { evaluations: evaluationsSimulees(codeVecteur(args.vecteur), args.applicables, args.texte), source: 'mock' };
     }
     throw e instanceof Error ? e : new Error('Erreur inconnue');

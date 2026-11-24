@@ -9,7 +9,7 @@ import type { StatutRun } from '../types';
 const LIBELLE_RUN: Record<StatutRun, string> = { attente: 'En attente', en_cours: 'Analyse en cours…', ok: 'Terminé', erreur: 'Échec' };
 
 export default function StepDossier() {
-  const { state, dispatch, lancer, nbQuestionsRepondues, nbRelances } = useAudit();
+  const { state, dispatch, deposerPdf, preRemplirDepuisDossier, lancer, nbQuestionsRepondues, nbRelances } = useAudit();
   const refPdf = useRef<HTMLInputElement>(null);
   const refPlans = useRef<HTMLInputElement>(null);
   const { projet } = state;
@@ -17,7 +17,8 @@ export default function StepDossier() {
   const applicablesParVecteur = (code: string) => CRITERES.filter((c) => c.vecteur === code && estApplicable(c, actifs)).length;
   const nbVecteurs = state.vecteursChoisis.length;
   const aDuContenu = state.texte.trim().length > 0 || !!state.pdf || state.plans.length > 0;
-  const peutLancer = aDuContenu && nbVecteurs > 0 && !state.enCours;
+  const bloque = state.enCours || state.preRemplissageEnCours;
+  const peutLancer = aDuContenu && nbVecteurs > 0 && !bloque;
   const nbTermines = Object.values(state.runs).filter((r) => r === 'ok').length;
   const coeff = projet.surfaceM2 ? coeffParcelle(projet.surfaceM2) : null;
 
@@ -31,8 +32,8 @@ export default function StepDossier() {
     <div>
       <h1>Déposez la proposition de l'opération</h1>
       <p className="lead">
-        Collez le texte du dossier, ou joignez le PDF et les plans. Le modèle lit le dossier vecteur par vecteur, note chaque critère applicable et cite la preuve
-        trouvée. Rien n'est inventé : un critère sans information reste vide.
+        Importez le PDF du dossier (ou collez son texte et ajoutez vos plans) : l'outil pré-remplit automatiquement la fiche opération et les 9 questions de contexte.
+        Vérifiez ensuite les champs avant de lancer l'audit.
       </p>
 
       <section className="card demo-card">
@@ -46,7 +47,7 @@ export default function StepDossier() {
         <button
           type="button"
           className="btn btn--primary"
-          disabled={state.enCours}
+          disabled={bloque}
           onClick={() => {
             if (!state.auditLance && !state.texte && !state.projet.nom) dispatch({ type: 'demo' });
             else if (window.confirm('Remplacer le dossier en cours par le dossier de démonstration ?')) dispatch({ type: 'demo' });
@@ -58,8 +59,108 @@ export default function StepDossier() {
 
       <div className="cols">
         <div className="col col--main">
+          {/* SECTION 1: UPLOAD FIRST -> TRIGGERS AUTO-FILL */}
           <section className="card">
-            <h2>1. L'opération</h2>
+            <h2>1. Le dossier (pré-remplissage automatique)</h2>
+            <p className="muted small" style={{ marginTop: 0 }}>
+              Dès que vous joignez un PDF, l'outil extrait le texte et complète automatiquement les sections 2 et 3 ci-dessous.
+            </p>
+
+            <div className="toolbar">
+              <input
+                ref={refPdf}
+                type="file"
+                accept="application/pdf"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  e.target.value = '';
+                  void deposerPdf(file);
+                }}
+              />
+              <button type="button" className="btn btn--primary" disabled={bloque} onClick={() => refPdf.current?.click()}>
+                {state.preRemplissageEnCours ? 'Lecture du PDF en cours…' : 'Joindre un PDF'}
+              </button>
+              {state.pdf && (
+                <span className="file-pill">
+                  {state.pdf.name}
+                  <button type="button" disabled={bloque} aria-label="Retirer le PDF" onClick={() => void deposerPdf(null)}>
+                    ×
+                  </button>
+                </span>
+              )}
+            </div>
+
+            <div className="toolbar">
+              <input
+                ref={refPlans}
+                type="file"
+                accept="image/png,image/jpeg"
+                multiple
+                hidden
+                onChange={(e) => {
+                  ajouterPlans(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+              <button type="button" className="btn" disabled={bloque || state.plans.length >= MAX_PLANS} onClick={() => refPlans.current?.click()}>
+                Ajouter des plans ({state.plans.length} / {MAX_PLANS})
+              </button>
+              {state.plans.map((p, i) => (
+                <span className="file-pill" key={`${p.name}-${i}`}>
+                  {p.name}
+                  <button type="button" disabled={bloque} aria-label={`Retirer ${p.name}`} onClick={() => dispatch({ type: 'plans', plans: state.plans.filter((_, j) => j !== i) })}>
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+
+            <textarea
+              rows={7}
+              style={{ marginTop: 12 }}
+              value={state.texte}
+              disabled={bloque}
+              placeholder="Ou collez ici le texte du dossier (notice, programme, descriptif…)"
+              aria-label="Texte du dossier"
+              onChange={(e) => dispatch({ type: 'texte', texte: e.target.value })}
+            />
+
+            {(state.texte.trim().length > 0 || state.plans.length > 0) && (
+              <div className="toolbar">
+                <button type="button" className="btn btn--sm" disabled={bloque} onClick={() => void preRemplirDepuisDossier()}>
+                  {state.preRemplissageEnCours ? 'Pré-remplissage en cours…' : 'Pré-remplir la fiche depuis le dossier'}
+                </button>
+              </div>
+            )}
+
+            {state.preRemplissageEnCours && (
+              <div className="note note--info" role="status">
+                Lecture du dossier et pré-remplissage automatique de l'opération et du contexte…
+              </div>
+            )}
+            {state.preRempli && !state.preRemplissageEnCours && (
+              <div className="note note--ok" style={{ marginTop: 12 }} role="status">
+                Pré-remplissage automatique terminé — vérifiez et ajustez les sections 2 et 3 ci-dessous avant de lancer l'audit.
+              </div>
+            )}
+            {state.erreurPreRemplissage && (
+              <div className="note note--bad" role="alert">
+                {state.erreurPreRemplissage}
+              </div>
+            )}
+
+            <p className="muted small">
+              Plans en images PNG ou JPEG (pour un plan en PDF, exportez-le d'abord en image). Le modèle lit aussi les plans : un critère « visible sur plan » peut être noté jusqu'à 3. Au-delà de {MAX_PLANS} plans, seuls les {MAX_PLANS} premiers sont transmis.
+            </p>
+          </section>
+
+          {/* SECTION 2: OPERATION METADATA (AUTO-FILLED, EDITABLE) */}
+          <section className="card">
+            <div className="between">
+              <h2>2. L'opération</h2>
+              {state.preRempli && <Chip ton="teal">Pré-rempli · à vérifier</Chip>}
+            </div>
             <div className="form">
               <label className="field">
                 <span>Nom du projet</span>
@@ -115,8 +216,14 @@ export default function StepDossier() {
             </p>
           </section>
 
+          {/* SECTION 3: PROJECT CONTEXT & DOCUMENTS (AUTO-FILLED, EDITABLE) */}
           <section className="card">
-            <h2>2. Contexte du projet ({nbQuestionsRepondues} / {TAGS.length} réponses)</h2>
+            <div className="between">
+              <h2>
+                3. Contexte du projet ({nbQuestionsRepondues} / {TAGS.length} réponses)
+              </h2>
+              {state.preRempli && <Chip ton="teal">Pré-rempli · à vérifier</Chip>}
+            </div>
             <p className="muted small" style={{ marginTop: 0 }}>
               Une réponse « Non » écarte les critères qui n'ont pas de sens pour ce projet. Sans réponse, ils restent actifs par prudence, et le score reste provisoire.
             </p>
@@ -148,63 +255,9 @@ export default function StepDossier() {
                 );
               })}
             </div>
-          </section>
 
-          <section className="card">
-            <h2>3. Le dossier</h2>
-            <textarea
-              rows={9}
-              value={state.texte}
-              disabled={state.enCours}
-              placeholder="Collez ici le texte du dossier (notice, programme, descriptif…)"
-              aria-label="Texte du dossier"
-              onChange={(e) => dispatch({ type: 'texte', texte: e.target.value })}
-            />
-            <div className="toolbar">
-              <input ref={refPdf} type="file" accept="application/pdf" hidden onChange={(e) => dispatch({ type: 'pdf', pdf: e.target.files?.[0] ?? null })} />
-              <button type="button" className="btn" disabled={state.enCours} onClick={() => refPdf.current?.click()}>
-                Joindre un PDF
-              </button>
-              {state.pdf && (
-                <span className="file-pill">
-                  {state.pdf.name}
-                  <button type="button" aria-label="Retirer le PDF" onClick={() => dispatch({ type: 'pdf', pdf: null })}>
-                    ×
-                  </button>
-                </span>
-              )}
-            </div>
-            <div className="toolbar">
-              <input
-                ref={refPlans}
-                type="file"
-                accept="image/png,image/jpeg"
-                multiple
-                hidden
-                onChange={(e) => {
-                  ajouterPlans(e.target.files);
-                  e.target.value = '';
-                }}
-              />
-              <button type="button" className="btn" disabled={state.enCours || state.plans.length >= MAX_PLANS} onClick={() => refPlans.current?.click()}>
-                Ajouter des plans ({state.plans.length} / {MAX_PLANS})
-              </button>
-              {state.plans.map((p, i) => (
-                <span className="file-pill" key={`${p.name}-${i}`}>
-                  {p.name}
-                  <button type="button" aria-label={`Retirer ${p.name}`} onClick={() => dispatch({ type: 'plans', plans: state.plans.filter((_, j) => j !== i) })}>
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-            <p className="muted small">
-              Plans en images PNG ou JPEG (pour un plan en PDF, exportez-le d'abord en image). Le modèle lit aussi les plans : un critère « visible sur plan » peut être noté jusqu'à 3. Au-delà de {MAX_PLANS} plans, seuls les {MAX_PLANS} premiers sont
-              transmis.
-            </p>
-
-            <div className="label" style={{ marginTop: 16 }}>
-              Pièces fournies (à titre d'information)
+            <div className="label" style={{ marginTop: 18 }}>
+              Pièces détectées / fournies (à titre d'information)
             </div>
             <div className="pieces">
               {PIECES.map((p) => (
@@ -240,7 +293,7 @@ export default function StepDossier() {
                   const statut = state.runs[v.code];
                   return (
                     <label key={v.code} className="check check--vecteur">
-                      <input type="checkbox" checked={state.vecteursChoisis.includes(v.code)} disabled={state.enCours} onChange={() => dispatch({ type: 'vecteur', code: v.code })} />
+                      <input type="checkbox" checked={state.vecteursChoisis.includes(v.code)} disabled={bloque} onChange={() => dispatch({ type: 'vecteur', code: v.code })} />
                       <span>
                         <strong>{v.code}</strong> {v.nom}
                         <span className="muted small"> · {applicablesParVecteur(v.code)} critères</span>
@@ -280,7 +333,7 @@ export default function StepDossier() {
             )}
             <div className="toolbar" style={{ marginTop: state.enCours || state.erreurGlobale || nbRelances ? 12 : 0 }}>
               <button type="button" className="btn btn--primary grow" disabled={!peutLancer} onClick={() => void lancer()}>
-                {state.enCours ? 'Analyse en cours…' : state.auditLance ? 'Relancer tout l\'audit' : `Lancer l'audit (${nbVecteurs} vecteur${nbVecteurs > 1 ? 's' : ''})`}
+                {state.enCours ? 'Analyse en cours…' : state.auditLance ? "Relancer tout l'audit" : `Lancer l'audit (${nbVecteurs} vecteur${nbVecteurs > 1 ? 's' : ''})`}
               </button>
               {!state.enCours && nbRelances > 0 && (
                 <button
@@ -292,7 +345,7 @@ export default function StepDossier() {
                 </button>
               )}
             </div>
-            {!aDuContenu && <p className="muted small">Collez un texte ou joignez un fichier pour lancer l'audit.</p>}
+            {!aDuContenu && <p className="muted small">Déposez un PDF ou collez un texte pour commencer.</p>}
             {state.auditLance && !state.enCours && (
               <button type="button" className="btn btn--block" style={{ marginTop: 10 }} onClick={() => dispatch({ type: 'step', step: 2 })}>
                 Voir les résultats

@@ -141,3 +141,10 @@ export interface Projet {
 export type Step = 1 | 2 | 3 | 4;
 export type Source = 'api' | 'mock';
 export type StatutRun = 'attente' | 'en_cours' | 'ok' | 'erreur';
+
+// ---- Auto-fill contract for Step 1 (POST /api/contexte) ----
+export interface ContexteAutoRempli {
+  projet: Partial<Projet>;
+  reponses: Partial<Record<CodeTag, Reponse>>;
+  pieces: string[];
+}
